@@ -1,0 +1,61 @@
+# Builds PF_Reports_Downloader.exe on Windows, self-tests it, and publishes it
+# to the "latest" release. Runs on every push to main.
+name: Build PF Reports Downloader
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: pip install -r requirements.txt pyinstaller
+
+      - name: Fetch brand font (Plus Jakarta Sans, OFL)
+        shell: pwsh
+        continue-on-error: true
+        run: Invoke-WebRequest "https://github.com/google/fonts/raw/main/ofl/plusjakartasans/PlusJakartaSans%5Bwght%5D.ttf" -OutFile branding/PlusJakartaSans.ttf
+
+      - name: Build exe (windowed, PF branding)
+        run: pyinstaller --onefile --windowed --name PF_Reports_Downloader --icon branding/pf-icon.ico --add-data "branding;branding" --collect-all playwright app_gui.py
+
+      - name: Self-test the exe (window opens, engine + browser driver load)
+        shell: pwsh
+        run: |
+          $env:PF_SELFTEST = "1"
+          $p = Start-Process dist\PF_Reports_Downloader.exe -PassThru -Wait
+          $data = "$env:APPDATA\PF Reports Downloader"
+          if (Test-Path "$data\error_log.txt") { Get-Content "$data\error_log.txt"; throw "App crashed on start" }
+          if (-not (Test-Path "$data\selftest.txt")) { throw "Self-test did not run (exit code $($p.ExitCode))" }
+          Get-Content "$data\selftest.txt"
+          if (-not (Select-String -Path "$data\selftest.txt" -Pattern "driver_exists=True" -Quiet)) { throw "Browser driver missing from the exe" }
+          if (-not (Select-String -Path "$data\selftest.txt" -Pattern "reports=14" -Quiet)) { throw "Report list incomplete" }
+          Write-Host "Self-test passed."
+
+      - name: Move the release tag to this commit
+        run: |
+          git tag -f latest
+          git push -f origin latest
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: PF Reports Downloader (latest)
+          body: |
+            Download **PF_Reports_Downloader.exe** and double-click it. Sign in once, pick the client, admin user and reports, then click **Download reports**.
+            Built and self-tested automatically on Windows.
+          files: dist/PF_Reports_Downloader.exe
+          make_latest: true

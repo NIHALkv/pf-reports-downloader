@@ -1,0 +1,18 @@
+# personal settings & sign-in data - never commit
+config.json
+*_profile/
+msedge_*/
+chrome_*/
+debug/
+run_logs/
+scheduler_logs/
+downloads/
+__pycache__/
+*.pyc
+build/
+dist/
+*.spec
+branding/PlusJakartaSans.ttf
+error_log.txt
+selftest.txt
+app_output.txt

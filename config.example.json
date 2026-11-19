@@ -1,0 +1,7 @@
+{
+  "_comment": "Optional when running from source. The desktop app creates and updates its own settings, so you normally never edit this. Only gmail_app_password must be typed by hand if you want summary emails.",
+  "gmail_app_password": "",
+  "notify_emails": [],
+  "download_root": "C:\\Reports download",
+  "post_trigger_wait_s": 120
+}
