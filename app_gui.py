@@ -1,5 +1,5 @@
 """
-PF Reports Downloader: desktop app (this is what PF_Reports_Downloader.exe runs).
+SkillPrism Report Downloader: desktop app (this is what SkillPrism_Report_Downloader.exe runs).
 
 Same proven engine as the SkillPrism Reports Downloader (automation.py), in a
 branded window:
@@ -71,7 +71,7 @@ class App:
         automation.STATUS_HOOK = lambda r, s, f=None, e=None: self.q.put(("status", (r, s, f, e)))
         self.known_reports = automation.KNOWN_REPORTS
 
-        root.title("Prismforce · Reports Downloader")
+        root.title("Prismforce · SkillPrism Report Downloader")
         root.configure(bg=SURFACE)
         sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
         root.geometry(f"{min(1240, sw - 40)}x{min(800, sh - 80)}+10+10")
@@ -144,7 +144,7 @@ class App:
             tk.Label(bar, image=self._logo, bg=NAVY).pack(side="left", padx=20)
         except Exception:
             tk.Label(bar, text="Prismforce", bg=NAVY, fg=ON_PRIMARY, font=self.F["h"]).pack(side="left", padx=20)
-        tk.Label(bar, text="Reports Downloader", bg=NAVY, fg=ON_PRIMARY, font=self.F["h"]).pack(side="right", padx=20)
+        tk.Label(bar, text="SkillPrism Report Downloader", bg=NAVY, fg=ON_PRIMARY, font=self.F["h"]).pack(side="right", padx=20)
 
     def _footer(self) -> None:
         """Action bar pinned to the bottom of the window: always visible, whatever the screen size."""
@@ -676,7 +676,7 @@ if __name__ == "__main__":
         except Exception:
             pass
         try:
-            messagebox.showerror("PF Reports Downloader",
+            messagebox.showerror("SkillPrism Report Downloader",
                                  f"The app hit an error:\n\n{exc}\n\nDetails: {cfgmod.DATA_DIR / 'error_log.txt'}")
         except Exception:
             pass

@@ -1,15 +1,15 @@
-# PF Reports Downloader
+# SkillPrism Report Downloader
 
 Download Reports Center reports for any client in a few clicks: sign in, pick the client and admin user, tick the reports, and click **Download reports**.
 
-![PF Reports Downloader](docs/app-screenshot.png)
+![SkillPrism Report Downloader](docs/app-screenshot.png)
 
-**[⬇️ Download PF_Reports_Downloader.exe](../../releases/latest/download/PF_Reports_Downloader.exe)** (Windows, nothing to install)
+**[⬇️ Download SkillPrism_Report_Downloader.exe](../../releases/latest/download/SkillPrism_Report_Downloader.exe)** (Windows, nothing to install)
 
 ---
 
 ## How to use
-1. **Open** `PF_Reports_Downloader.exe`.
+1. **Open** `SkillPrism_Report_Downloader.exe`.
    - Chrome says *"isn't commonly downloaded"*: click **⋯ → Keep → Keep anyway**.
    - Windows says *"protected your PC"*: click **More info → Run anyway**. The app is unsigned.
 2. **Step 1: Sign in** (first time only). An Edge window opens and clicks *Sign in with Google* for you. Pick your @prismforce.ai account and finish 2FA if asked. The sign-in is remembered.
@@ -51,4 +51,4 @@ python app_gui.py
 ```
 
 ### Releasing a new version
-Push to `main`. GitHub builds `PF_Reports_Downloader.exe` on Windows, launches it once as a self-test (window opens, engine and browser driver load), and only then publishes it to **[Releases → latest](../../releases/latest)**. The download link above always serves the newest build.
+Push to `main`. GitHub builds `SkillPrism_Report_Downloader.exe` on Windows, launches it once as a self-test (window opens, engine and browser driver load), and only then publishes it to **[Releases → latest](../../releases/latest)**. The download link above always serves the newest build.

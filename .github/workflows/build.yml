@@ -1,6 +1,6 @@
-# Builds PF_Reports_Downloader.exe on Windows, self-tests it, and publishes it
+# Builds SkillPrism_Report_Downloader.exe on Windows, self-tests it, and publishes it
 # to the "latest" release. Runs on every push to main.
-name: Build PF Reports Downloader
+name: Build SkillPrism Report Downloader
 
 on:
   push:
@@ -29,13 +29,13 @@ jobs:
         run: Invoke-WebRequest "https://github.com/google/fonts/raw/main/ofl/plusjakartasans/PlusJakartaSans%5Bwght%5D.ttf" -OutFile branding/PlusJakartaSans.ttf
 
       - name: Build exe (windowed, PF branding)
-        run: pyinstaller --onefile --windowed --name PF_Reports_Downloader --icon branding/pf-icon.ico --add-data "branding;branding" --collect-all playwright app_gui.py
+        run: pyinstaller --onefile --windowed --name SkillPrism_Report_Downloader --icon branding/pf-icon.ico --add-data "branding;branding" --collect-all playwright app_gui.py
 
       - name: Self-test the exe (window opens, engine + browser driver load)
         shell: pwsh
         run: |
           $env:PF_SELFTEST = "1"
-          $p = Start-Process dist\PF_Reports_Downloader.exe -PassThru -Wait
+          $p = Start-Process dist\SkillPrism_Report_Downloader.exe -PassThru -Wait
           $data = "$env:APPDATA\PF Reports Downloader"
           if (Test-Path "$data\error_log.txt") { Get-Content "$data\error_log.txt"; throw "App crashed on start" }
           if (-not (Test-Path "$data\selftest.txt")) { throw "Self-test did not run (exit code $($p.ExitCode))" }
@@ -53,9 +53,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest
-          name: PF Reports Downloader (latest)
+          name: SkillPrism Report Downloader (latest)
           body: |
-            Download **PF_Reports_Downloader.exe** and double-click it. Sign in once, pick the client, admin user and reports, then click **Download reports**.
+            Download **SkillPrism_Report_Downloader.exe** and double-click it. Sign in once, pick the client, admin user and reports, then click **Download reports**.
             Built and self-tested automatically on Windows.
-          files: dist/PF_Reports_Downloader.exe
+          files: dist/SkillPrism_Report_Downloader.exe
           make_latest: true

@@ -1,5 +1,5 @@
 """
-Per-user settings for the PF Reports Downloader.
+Per-user settings for the SkillPrism Report Downloader.
 
 Desktop app (.exe): settings live in %APPDATA%\\PF Reports Downloader\\config.json
 and are created/updated by the app itself, so nobody edits a file by hand.
@@ -15,7 +15,7 @@ import re
 import sys
 from pathlib import Path
 
-APP_NAME = "PF Reports Downloader"
+APP_NAME = "PF Reports Downloader"  # settings/sign-in folder name: kept unchanged so existing sign-ins carry over
 BASE_DIR = Path(__file__).resolve().parent
 
 
