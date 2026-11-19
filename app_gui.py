@@ -39,6 +39,20 @@ BAD = "#dc2626"
 
 STEPS = [("login", "Silent login"), ("generate", "Generate"), ("wait", "Wait"), ("download", "Download")]
 
+# The same window runs two tools; each .exe picks one.
+PRODUCTS = {
+    "skillprism": {
+        "name": "SkillPrism Report Downloader",
+        "engine": "automation",
+        "hint": "Generates all ticked reports, waits 2 minutes, then downloads them.",
+    },
+    "intelliprism": {
+        "name": "IntelliPrism Report Downloader",
+        "engine": "rms_automation",
+        "hint": "One report at a time (the site's rule): date range 1 Jan 2016 to today, generate, wait, download.",
+    },
+}
+
 
 def resource(rel: str) -> Path:
     return Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent)) / rel
@@ -56,22 +70,34 @@ def load_brand_font() -> None:
 
 
 class App:
-    def __init__(self, root: tk.Tk) -> None:
+    def __init__(self, root: tk.Tk, product: str = "skillprism") -> None:
+        self.product = product
+        self.P = PRODUCTS[product]
         self.root = root
         self.q: queue.Queue = queue.Queue()
         self.settings = cfgmod.load_config()
         self.busy = None            # None | "login" | "run"
         self.stop_event = None
         self.wait_until = 0.0
+        self.wait_since = 0.0
+        self.wait_label = ""
         self.log_file = cfgmod.DATA_DIR / "run_logs" / f"app_{datetime.now():%Y%m%d}.log"
 
         import automation  # engine (imports Playwright)
 
         self.engine = automation
         automation.STATUS_HOOK = lambda r, s, f=None, e=None: self.q.put(("status", (r, s, f, e)))
-        self.known_reports = automation.KNOWN_REPORTS
+        if self.P["engine"] == "rms_automation":
+            import rms_automation
 
-        root.title("Prismforce · SkillPrism Report Downloader")
+            self.runner = rms_automation.run_job
+            self.known_reports = rms_automation.KNOWN_REPORTS
+        else:
+            self.runner = automation.run_job
+            self.known_reports = automation.KNOWN_REPORTS
+        self.sel_key = "selected_reports" if product == "skillprism" else f"selected_reports_{product}"
+
+        root.title(f"Prismforce · {self.P['name']}")
         root.configure(bg=SURFACE)
         sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
         root.geometry(f"{min(1240, sw - 40)}x{min(800, sh - 80)}+10+10")
@@ -144,7 +170,7 @@ class App:
             tk.Label(bar, image=self._logo, bg=NAVY).pack(side="left", padx=20)
         except Exception:
             tk.Label(bar, text="Prismforce", bg=NAVY, fg=ON_PRIMARY, font=self.F["h"]).pack(side="left", padx=20)
-        tk.Label(bar, text="SkillPrism Report Downloader", bg=NAVY, fg=ON_PRIMARY, font=self.F["h"]).pack(side="right", padx=20)
+        tk.Label(bar, text=self.P["name"], bg=NAVY, fg=ON_PRIMARY, font=self.F["h"]).pack(side="right", padx=20)
 
     def _footer(self) -> None:
         """Action bar pinned to the bottom of the window: always visible, whatever the screen size."""
@@ -266,21 +292,32 @@ class App:
         self._button(tools, "Clear all", lambda: self._select_all(False), kind="chip").pack(side="left", padx=8)
         self.count_lbl = tk.Label(tools, text="", bg=CARD, fg=MUTED, font=self.F["small"])
         self.count_lbl.pack(side="left", padx=4)
+        tk.Label(c3, text=self.P["hint"], bg=CARD, fg=MUTED, font=self.F["small"], anchor="w",
+                 justify="left").pack(fill="x", pady=(0, 6))
         grid = tk.Frame(c3, bg=CARD)
         grid.pack(fill="x")
-        chosen = set(self.settings.get("selected_reports") or [])
+        chosen = set(self.settings.get(self.sel_key) or [])
         self.report_vars: dict[str, tk.BooleanVar] = {}
+        single = len(self.known_reports) == 1
         for i, (group, names) in enumerate(self.known_reports):
             box = tk.Frame(grid, bg=LINE)
-            box.grid(row=i // 3, column=i % 3, sticky="nsew", padx=(0, 8), pady=(0, 8))
+            if single:
+                box.grid(row=0, column=0, columnspan=3, sticky="nsew", pady=(0, 8))
+            else:
+                box.grid(row=i // 3, column=i % 3, sticky="nsew", padx=(0, 8), pady=(0, 8))
             inner = tk.Frame(box, bg=CARD, padx=10, pady=8)
             inner.pack(fill="both", expand=True, padx=1, pady=1)
-            tk.Label(inner, text=group, bg=CARD, fg=PRIMARY, font=self.F["small"] + ("bold",)).pack(anchor="w")
-            for n in names:
+            tk.Label(inner, text=group, bg=CARD, fg=PRIMARY, font=self.F["small"] + ("bold",)).grid(
+                row=0, column=0, columnspan=2, sticky="w")
+            for j, n in enumerate(names):
                 v = tk.BooleanVar(value=n in chosen)
                 v.trace_add("write", lambda *a: self._update_count())
                 self.report_vars[n] = v
-                ttk.Checkbutton(inner, text=n, variable=v, style="PF.TCheckbutton").pack(anchor="w", pady=1)
+                cb = ttk.Checkbutton(inner, text=n, variable=v, style="PF.TCheckbutton")
+                if single:
+                    cb.grid(row=1 + j // 2, column=j % 2, sticky="w", pady=1, padx=(0, 24))
+                else:
+                    cb.grid(row=1 + j, column=0, sticky="w", pady=1)
         for col in range(3):
             grid.columnconfigure(col, weight=1, uniform="g")
         self._update_count()
@@ -465,7 +502,7 @@ class App:
         recent = [r for r in s.get("recent_clients") or [] if r.get("client_name", "").lower() != client.lower()]
         recent.insert(0, {"client_name": client, "admin_user": admin})
         s["recent_clients"] = recent[:15]
-        s["selected_reports"] = reports
+        s[self.sel_key] = reports
         s["download_root"] = self.folder.get().strip()
         s["show_browser"] = bool(self.show_browser.get())
         try:
@@ -533,7 +570,7 @@ class App:
 
         def work():
             try:
-                res = self.engine.run_job(client, admin, reports, log=self._log, headless=headless,
+                res = self.runner(client, admin, reports, log=self._log, headless=headless,
                                           stop_event=self.stop_event, trigger="Manual", send_email=send_email)
                 self.q.put(("run_done", ("ok", res)))
             except self.engine.RunStopped:
@@ -559,6 +596,10 @@ class App:
                 self._handle(kind, data)
         except queue.Empty:
             pass
+        if self.wait_since:
+            el = int(time.time() - self.wait_since)
+            self.status.config(text=f"Waiting for '{self.wait_label}' to finish on the server… "
+                                    f"{el // 60}:{el % 60:02d} so far (checks every 15s)")
         if self.wait_until:
             left = int(self.wait_until - time.time())
             if left > 0:
@@ -573,13 +614,24 @@ class App:
             msg = data
             self._append_log(msg)
             if msg.startswith("Logged in as"):
-                self.status.config(text="Logged in. Opening Reports Center…")
+                self.status.config(text="Logged in. Opening the reports page…")
             elif msg.startswith("PHASE 1"):
                 self._set_step("generate")
                 self.status.config(text="Starting report generation…")
             elif msg.startswith("PHASE 2"):
                 self._set_step("wait")
                 self.wait_until = time.time() + int(self.engine.POST_TRIGGER_WAIT_S)
+            elif msg.startswith("REPORT "):  # IntelliPrism: "REPORT 2/5 Positions Report"
+                head, _, name = msg[7:].partition(" ")
+                self._set_step("generate")
+                self.wait_since = 0
+                self.status.config(text=f"Report {head.replace('/', ' of ')}: {name}. Setting dates and generating…")
+            elif msg.startswith("WAITING "):
+                self._set_step("wait")
+                self.wait_since = time.time()
+                self.wait_label = msg[8:]
+            elif msg.startswith("[") and "Saved to" in msg and self.product == "intelliprism":
+                self._set_step("download")
             elif msg.startswith("PHASE 3"):
                 self._set_step("download")
                 self.wait_until = 0
@@ -590,6 +642,8 @@ class App:
                 self._progress_update()
         elif kind == "status":
             report, status, file_path, error = data
+            if self.product == "intelliprism" and status in ("Success", "Failed", "Stopped"):
+                self.wait_since = 0
             self._row(report, status, error or "")
             self._progress_update()
         elif kind == "login_done":
@@ -603,6 +657,7 @@ class App:
     def _finish(self, outcome: str, payload) -> None:
         self._lock_ui(None)
         self.wait_until = 0
+        self.wait_since = 0
         self.bar.stop()
         self.bar.config(mode="determinate", value=100)
         rows = self.tree.get_children()
@@ -646,27 +701,30 @@ class App:
 
         drv = compute_driver_executable()
         drv_path = Path(drv[0] if isinstance(drv, tuple) else drv)
-        report = cfgmod.DATA_DIR / "selftest.txt"
-        report.write_text(f"ui=ok\nreports={len(self.report_vars)}\ndriver={drv_path}\n"
+        report = cfgmod.DATA_DIR / f"selftest_{self.product}.txt"
+        report.write_text(f"ui=ok\nproduct={self.product}\nreports={len(self.report_vars)}\ndriver={drv_path}\n"
                           f"driver_exists={drv_path.exists()}\n", encoding="utf-8")
         self.root.destroy()
 
 
-def main() -> int:
+def main(product: str = "skillprism") -> int:
     if sys.stdout is None or sys.stderr is None:  # windowed .exe: no console
         logf = open(cfgmod.DATA_DIR / "app_output.txt", "a", encoding="utf-8", buffering=1)  # noqa: SIM115
         sys.stdout = sys.stdout or logf
         sys.stderr = sys.stderr or logf
     load_brand_font()
     root = tk.Tk()
-    App(root)
+    App(root, product)
     root.mainloop()
     return 0
 
 
-if __name__ == "__main__":
+def run_safely(product: str) -> None:
+    """Run the app; a windowed .exe must never fail silently."""
     try:
-        sys.exit(main())
+        sys.exit(main(product))
+    except SystemExit:
+        raise
     except Exception as exc:
         import traceback
 
@@ -676,8 +734,12 @@ if __name__ == "__main__":
         except Exception:
             pass
         try:
-            messagebox.showerror("SkillPrism Report Downloader",
+            messagebox.showerror("Prismforce Report Downloader",
                                  f"The app hit an error:\n\n{exc}\n\nDetails: {cfgmod.DATA_DIR / 'error_log.txt'}")
         except Exception:
             pass
         sys.exit(1)
+
+
+if __name__ == "__main__":
+    run_safely(os.environ.get("PF_PRODUCT", "skillprism"))

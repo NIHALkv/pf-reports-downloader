@@ -16,3 +16,4 @@ branding/PlusJakartaSans.ttf
 error_log.txt
 selftest.txt
 app_output.txt
+selftest_*.txt

@@ -1,6 +1,6 @@
 # Builds SkillPrism_Report_Downloader.exe on Windows, self-tests it, and publishes it
 # to the "latest" release. Runs on every push to main.
-name: Build SkillPrism Report Downloader
+name: Build Prismforce Report Downloaders
 
 on:
   push:
@@ -28,21 +28,29 @@ jobs:
         continue-on-error: true
         run: Invoke-WebRequest "https://github.com/google/fonts/raw/main/ofl/plusjakartasans/PlusJakartaSans%5Bwght%5D.ttf" -OutFile branding/PlusJakartaSans.ttf
 
-      - name: Build exe (windowed, PF branding)
-        run: pyinstaller --onefile --windowed --name SkillPrism_Report_Downloader --icon branding/pf-icon.ico --add-data "branding;branding" --collect-all playwright app_gui.py
+      - name: Build both apps (windowed, PF branding)
+        shell: pwsh
+        run: |
+          foreach ($app in @(@{name="SkillPrism_Report_Downloader"; entry="app_skillprism.py"}, @{name="IntelliPrism_Report_Downloader"; entry="app_intelliprism.py"})) {
+            pyinstaller --onefile --windowed --name $app.name --icon branding/pf-icon.ico --add-data "branding;branding" --collect-all playwright --hidden-import rms_automation --hidden-import automation $app.entry
+            if ($LASTEXITCODE -ne 0) { throw "Build failed for $($app.name)" }
+          }
 
-      - name: Self-test the exe (window opens, engine + browser driver load)
+      - name: Self-test both apps (window opens, engine + browser driver load)
         shell: pwsh
         run: |
           $env:PF_SELFTEST = "1"
-          $p = Start-Process dist\SkillPrism_Report_Downloader.exe -PassThru -Wait
           $data = "$env:APPDATA\PF Reports Downloader"
-          if (Test-Path "$data\error_log.txt") { Get-Content "$data\error_log.txt"; throw "App crashed on start" }
-          if (-not (Test-Path "$data\selftest.txt")) { throw "Self-test did not run (exit code $($p.ExitCode))" }
-          Get-Content "$data\selftest.txt"
-          if (-not (Select-String -Path "$data\selftest.txt" -Pattern "driver_exists=True" -Quiet)) { throw "Browser driver missing from the exe" }
-          if (-not (Select-String -Path "$data\selftest.txt" -Pattern "reports=14" -Quiet)) { throw "Report list incomplete" }
-          Write-Host "Self-test passed."
+          foreach ($t in @(@{exe="SkillPrism_Report_Downloader"; product="skillprism"; reports=14}, @{exe="IntelliPrism_Report_Downloader"; product="intelliprism"; reports=5})) {
+            $p = Start-Process "dist\$($t.exe).exe" -PassThru -Wait
+            if (Test-Path "$data\error_log.txt") { Get-Content "$data\error_log.txt"; throw "$($t.exe) crashed on start" }
+            $f = "$data\selftest_$($t.product).txt"
+            if (-not (Test-Path $f)) { throw "$($t.exe) self-test did not run (exit $($p.ExitCode))" }
+            Get-Content $f
+            if (-not (Select-String -Path $f -Pattern "driver_exists=True" -Quiet)) { throw "$($t.exe): browser driver missing" }
+            if (-not (Select-String -Path $f -Pattern "reports=$($t.reports)" -Quiet)) { throw "$($t.exe): report list incomplete" }
+          }
+          Write-Host "Both self-tests passed."
 
       - name: Move the release tag to this commit
         run: |
@@ -53,9 +61,14 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest
-          name: SkillPrism Report Downloader (latest)
+          name: Prismforce Report Downloaders (latest)
           body: |
-            Download **SkillPrism_Report_Downloader.exe** and double-click it. Sign in once, pick the client, admin user and reports, then click **Download reports**.
-            Built and self-tested automatically on Windows.
-          files: dist/SkillPrism_Report_Downloader.exe
+            - **SkillPrism_Report_Downloader.exe**: SkillPrism Reports Center (14 reports)
+            - **IntelliPrism_Report_Downloader.exe**: IntelliPrism reports (5 reports, 1 Jan 2016 to today)
+
+            Download, double-click, sign in once, pick client + admin user + reports, click **Download reports**.
+            Both built and self-tested automatically on Windows.
+          files: |
+            dist/SkillPrism_Report_Downloader.exe
+            dist/IntelliPrism_Report_Downloader.exe
           make_latest: true
