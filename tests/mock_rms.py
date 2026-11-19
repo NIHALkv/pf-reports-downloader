@@ -1,4 +1,7 @@
-"""Mock of the IntelliPrism (RMS) reports pages, for testing rms_automation without the real site.
+"""Mock of the IntelliPrism (RMS) reports pages. Like the real site, Intelliprism Reports and
+Downloads only open from the left menu - typing their address bounces to Home.
+
+Mock of the IntelliPrism (RMS) reports pages, for testing rms_automation without the real site.
 
 Mirrors the real structure: mat-card.report-card cards, a right-side mat-drawer filter
 panel whose first date field (div.date-filter > input + div.calendar-btn) opens an
@@ -55,6 +58,21 @@ def file_download():
     return send_file(data, as_attachment=True, download_name=f"{j['name']}.xlsx")
 
 
+MENU = """<nav><a class="menu-list-item" onclick="go('/rms/home')">Home</a>
+<a class="menu-list-item" onclick="go('/rms/rms-reports')">Intelliprism Reports</a>
+<a class="menu-list-item" onclick="go('/rms/download-center')">Downloads</a></nav>
+<script>
+function go(u){ sessionStorage.setItem('nav','1'); location.href=u; }
+if (location.pathname !== '/rms/home') { if (!sessionStorage.getItem('nav')) location.replace('/rms/home'); }
+sessionStorage.removeItem('nav');
+</script>"""
+
+
+@app.get("/rms/home")
+def home():
+    return MENU + "<h2>Home</h2>"
+
+
 @app.get("/rms/download-center")
 def downloads():
     rows = []
@@ -71,7 +89,7 @@ def downloads():
                 '<td class="mat-column-requeston">18 Nov 2026, 2:51 PM GMT+5:30</td><td class="mat-column-status">Success</td>'
                 '<td class="mat-column-filter"></td><td class="mat-column-action"><button class="primary-btn" '
                 'onclick="alert(1)">DOWNLOAD</button></td></tr>')
-    return "<h2>Downloads</h2><table><tbody>" + "".join(rows) + "</tbody></table>"
+    return MENU + "<h2>Downloads</h2><table><tbody>" + "".join(rows) + "</tbody></table>"
 
 
 PAGE = r"""<html><body>
@@ -98,8 +116,9 @@ PAGE = r"""<html><body>
   </div></div>
   <button class="primary-btn w-100" onclick="gen()">GENERATE REPORT</button>
 </mat-drawer>
-<mat-dialog-container id="dlg" style="display:none"><h3>Report is generating</h3>
-  <button onclick="location.href='/rms/download-center'">GO TO DOWNLOADS</button></mat-dialog-container>
+<div id="backdrop" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.3);z-index:10"></div>
+<mat-dialog-container id="dlg" style="display:none;position:fixed;top:30%;left:30%;z-index:11;background:#fff;padding:20px"><h3>Report is generating</h3>
+  <button onclick="go('/rms/download-center')">GO TO DOWNLOADS</button></mat-dialog-container>
 <script>
 const REPORTS = __REPORTS__;
 const MON = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
@@ -142,7 +161,7 @@ async function gen() {
   const r = await fetch("/api/generate", {method: "POST", headers: {"Content-Type": "application/json"},
     body: JSON.stringify({name: current, dates: document.getElementById("f1").value})});
   closeDrawer();
-  if (r.ok) document.getElementById("dlg").style.display = "block";
+  if (r.ok) { document.getElementById("dlg").style.display = "block"; document.getElementById("backdrop").style.display = "block"; }
   render();
 }
 render();
@@ -152,7 +171,7 @@ render();
 @app.get("/rms/rms-reports")
 def reports():
     import json
-    return PAGE.replace("__REPORTS__", json.dumps(REPORTS))
+    return MENU + PAGE.replace("__REPORTS__", json.dumps(REPORTS))
 
 
 if __name__ == "__main__":

@@ -48,25 +48,62 @@ def _exact(text: str):
 
 
 # ------------------------------------------------------------------ navigation
+# The site only opens these pages from its left menu; typing the address sends you
+# back to Home. So we always click the menu, like a person does.
+def _menu(page, label: str):
+    return page.locator("a.menu-list-item").filter(has_text=_exact(label)).first
+
+
+def _ensure_in_app(page, origin: str, log):
+    if "/rms/" not in page.url or "file-download" in page.url:
+        page.goto(f"{origin}/rms/home", timeout=60000)
+        core.wait_networkidle(page, log, timeout=30000)
+    if core.looks_like_login_page(page):
+        raise core.SessionExpired("Redirected to login while opening IntelliPrism.")
+    try:
+        _menu(page, "Intelliprism Reports").wait_for(timeout=40000)
+    except PWTimeoutError:
+        core.debug_dump(page, "rms_menu_not_found", log)
+        raise core.ReportNotFound("IntelliPrism's left menu (Intelliprism Reports / Downloads) didn't appear. "
+                                  "Does this admin user have IntelliPrism access?")
+
+
+def _click_menu(page, label: str, log):
+    item = _menu(page, label)
+    try:
+        item.click(timeout=8000)
+    except Exception:
+        item.evaluate("el => el.click()")
+    core.wait_networkidle(page, log, timeout=30000)
+
+
 def go_to_rms_reports(page, log=core._noop_log, origin: str | None = None):
     origin = origin or _origin(page)
-    log(f"Opening Intelliprism Reports on {origin}...")
-    page.goto(f"{origin}/rms/rms-reports", timeout=60000)
-    core.wait_networkidle(page, log, timeout=30000)
-    if core.looks_like_login_page(page):
-        raise core.SessionExpired("Redirected to login while opening Intelliprism Reports.")
-    try:
-        page.locator("mat-card.report-card h3").first.wait_for(timeout=40000)
-    except PWTimeoutError:
-        core.debug_dump(page, "rms_reports_not_loaded", log)
-        raise core.ReportNotFound("Intelliprism Reports page didn't load (no report cards). "
-                                  "Does this admin user have IntelliPrism access?")
-    page.wait_for_timeout(1500)
+    log("Opening Intelliprism Reports...")
+    _ensure_in_app(page, origin, log)
+    for attempt in (1, 2):
+        _click_menu(page, "Intelliprism Reports", log)
+        try:
+            page.locator("mat-card.report-card h3").first.wait_for(timeout=30000)
+            page.wait_for_timeout(1500)
+            return
+        except PWTimeoutError:
+            if attempt == 1:
+                log("Report cards didn't show yet - clicking Home, then Intelliprism Reports again...")
+                _click_menu(page, "Home", log)
+    core.debug_dump(page, "rms_reports_not_loaded", log)
+    raise core.ReportNotFound("Intelliprism Reports didn't load (no report cards). "
+                              "Does this admin user have IntelliPrism access?")
 
 
 def go_to_downloads(page, origin: str, log=core._noop_log):
-    page.goto(f"{origin}/rms/download-center", timeout=60000)
-    core.wait_networkidle(page, log, timeout=30000)
+    """Open (or refresh) Downloads via the menu. If we're already there, hop to
+    Intelliprism Reports first so the table reloads with the latest statuses."""
+    _ensure_in_app(page, origin, log)
+    if "download-center" in page.url:
+        _click_menu(page, "Intelliprism Reports", log)
+        page.wait_for_timeout(800)
+    _click_menu(page, "Downloads", log)
     try:
         page.locator("td.mat-column-name").first.wait_for(timeout=40000)
     except PWTimeoutError:
@@ -194,8 +231,14 @@ def submit_generate(page, report_name: str, log=core._noop_log) -> datetime:
     try:
         dialog.first.wait_for(timeout=15000)
         log("Report generation started.")
+        go = dialog.first.locator("button").filter(has_text=re.compile(r"go to downloads", re.I)).first
+        if go.count():
+            go.click(timeout=8000)  # same as the person does; also closes the pop-up
+            core.wait_networkidle(page, log, timeout=30000)
     except PWTimeoutError:
         log("Didn't see the 'Report is generating' message - will check Downloads anyway.")
+    except Exception as exc:
+        log(f"Couldn't click GO TO DOWNLOADS ({str(exc).splitlines()[0][:80]}) - opening Downloads from the menu.")
     return queued_at
 
 
