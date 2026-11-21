@@ -404,6 +404,7 @@ def run_job(client_name: str, admin_user: str, report_names, log=print, headless
 
     global ROLE
     ROLE = (role or DEFAULT_ROLE).strip()
+    core.EMAIL_PRODUCT = "IntelliPrism"
 
     report_names = list(report_names)
     if not core.has_valid_session():

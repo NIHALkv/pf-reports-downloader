@@ -32,7 +32,7 @@ jobs:
         shell: pwsh
         run: |
           foreach ($app in @(@{name="SkillPrism_Report_Downloader"; entry="app_skillprism.py"}, @{name="IntelliPrism_Report_Downloader"; entry="app_intelliprism.py"})) {
-            pyinstaller --onefile --windowed --name $app.name --icon branding/pf-icon.ico --add-data "branding;branding" --collect-all playwright --hidden-import rms_automation --hidden-import automation $app.entry
+            pyinstaller --onefile --windowed --name $app.name --icon branding/pf-icon.ico --add-data "branding;branding" --collect-all playwright --collect-submodules keyring --hidden-import win32ctypes.core --hidden-import rms_automation --hidden-import automation --hidden-import scheduling $app.entry
             if ($LASTEXITCODE -ne 0) { throw "Build failed for $($app.name)" }
           }
 
@@ -50,6 +50,7 @@ jobs:
             if (-not (Select-String -Path $f -Pattern "driver_exists=True" -Quiet)) { throw "$($t.exe): browser driver missing" }
             if (-not (Select-String -Path $f -Pattern "reports=$($t.reports)" -Quiet)) { throw "$($t.exe): report list incomplete" }
             if (-not (Select-String -Path $f -Pattern "schedule=ok" -Quiet)) { throw "$($t.exe): Windows Task Scheduler test failed" }
+            if (-not (Select-String -Path $f -Pattern "keyring=ok" -Quiet)) { throw "$($t.exe): Windows Credential Manager test failed" }
             # background (scheduled) mode starts and exits cleanly for an unknown schedule id
             $env:PF_SELFTEST = ""
             $q = Start-Process "dist\$($t.exe).exe" -ArgumentList "--scheduled","nosuchid" -PassThru -Wait
@@ -57,7 +58,7 @@ jobs:
             $env:PF_SELFTEST = "1"
           }
           Get-Content "$data\run_logs\scheduled_*.log" -ErrorAction SilentlyContinue
-          Write-Host "Both self-tests passed (UI, engine, browser driver, Windows Task Scheduler, scheduled mode)."
+          Write-Host "Both self-tests passed (UI, engine, browser driver, Task Scheduler, Credential Manager, scheduled mode)."
 
       - name: Move the release tag to this commit
         run: |

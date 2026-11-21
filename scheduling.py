@@ -71,7 +71,8 @@ def describe(s: dict) -> str:
 
 # ------------------------------------------------------------------ create / remove
 def add_schedule(product: str, client: str, admin: str, reports: list[str], folder: str,
-                 time_hhmm: str, days: list[str], role: str | None = None) -> dict:
+                 time_hhmm: str, days: list[str], role: str | None = None,
+                 notify: list[str] | None = None) -> dict:
     if not supported():
         raise ScheduleError("Scheduling uses Windows Task Scheduler, so it only works on Windows.")
     if not days:
@@ -84,7 +85,7 @@ def add_schedule(product: str, client: str, admin: str, reports: list[str], fold
         "id": uuid.uuid4().hex[:6], "product": product, "client": client, "admin": admin,
         "role": role, "reports": list(reports), "folder": folder, "time": time_hhmm,
         "days": [d for d in DAYS if d in days], "created": datetime.now().isoformat(timespec="minutes"),
-        "last_run": None,
+        "notify": list(notify or []), "last_run": None,
     }
     sc = ["/SC", "DAILY"] if len(s["days"]) == 7 else ["/SC", "WEEKLY", "/D", ",".join(s["days"])]
     r = _schtasks(["/Create", "/TN", task_name(s), "/TR", _app_command(product, s["id"]), *sc,
@@ -139,8 +140,15 @@ def run_scheduled(product: str, sched_id: str) -> int:
     import automation as core
 
     core.set_download_root(s["folder"])
-    kwargs = {"headless": True, "trigger": "Scheduled", "notify_on_expiry": True,
-              "send_email": core.emails_enabled()}
+    core.SEND_ATTEMPT_EMAIL = False  # only the "completed" email
+    notify = s.get("notify") or []
+    send = bool(notify) and core.emails_enabled()
+    if notify and not send:
+        log("Email not sent: no Gmail app password is set (open the app > Email when done).")
+    if send:
+        core.CONFIG["notify_emails"] = notify
+        core.CONFIG["alert_to_email"] = notify[0]
+    kwargs = {"headless": True, "trigger": "Scheduled", "notify_on_expiry": send, "send_email": send}
     if product == "intelliprism":
         import rms_automation as engine
         kwargs["role"] = s.get("role")

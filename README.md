@@ -25,6 +25,17 @@ Windows, nothing to install.
 Files go to `C:\Reports download\<Client>\<DD-MM-YYYY>\<Report>_<HHMMSS>.xlsx`. Change this with **Save to**. Every attempt is logged in `Download_Log.xlsx` in that folder.
 The folder, including any missing parent folders, is **created automatically** if it doesn't exist.
 
+## Email when done (optional)
+![Email when done](docs/email-screenshot.png)
+
+1. Tick **Email a summary when the download finishes**.
+2. In **To**, enter one or more addresses, separated by commas.
+3. **One-time setup:** click **Set app password…**. Google's *App passwords* page opens. Create one (e.g. "Report Downloader") and paste the 16 letters into the app. It's stored in **Windows Credential Manager** on your PC, never in a file or the repo.
+4. Click **Send test email** to check it arrives.
+
+The email is sent from **your own Gmail** (the account you signed in with) when the run finishes. Its subject reads SUCCESS, PARTIAL or FAILED, and it lists each report, the saved file path and size, and why anything failed.
+Schedules email too: whoever is in **To** when you click **Add schedule** gets the summary after each scheduled run (shown as ✉ in the list).
+
 ## Schedule automatic downloads
 ![Schedule](docs/schedule-screenshot.png)
 
@@ -65,7 +76,6 @@ Global Admin → client → **Silent Login** → Intelliprism Reports, then **on
 - **Open logs** (bottom bar) opens `%APPDATA%\PF Reports Downloader\`:
   - `run_logs\`: every run
   - `debug\`: page snapshots whenever a step fails. Send these when reporting a problem.
-- **Optional email summaries:** add `"gmail_app_password": "<16 chars>"` to `%APPDATA%\PF Reports Downloader\config.json`.
 
 ## Files
 | File | What it is |

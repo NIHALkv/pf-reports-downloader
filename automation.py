@@ -81,9 +81,62 @@ def set_post_trigger_wait(seconds: int) -> None:
     POST_TRIGGER_WAIT_S = POST_GENERATE_DELAY_S = int(seconds)
 
 
+# ---------------------------------------------------------------- email settings
+EMAIL_PRODUCT = "SkillPrism"   # subject prefix; the IntelliPrism engine sets its own
+SEND_ATTEMPT_EMAIL = True      # desktop apps turn this off: they only send the "completed" email
+_KEYRING_SERVICE = "PF Report Downloader (Gmail app password)"
+
+
+def get_app_password() -> str:
+    """Gmail app password: Windows Credential Manager first, then config.json (legacy)."""
+    user = CONFIG.get("user_email")
+    pw = ""
+    if user:
+        try:
+            import keyring
+
+            pw = keyring.get_password(_KEYRING_SERVICE, user) or ""
+        except Exception:
+            pw = ""
+    pw = pw or (CONFIG.get("gmail_app_password") or "")
+    pw = pw.replace(" ", "")
+    return "" if pw.startswith("REPLACE") else pw
+
+
+def set_app_password(pw: str) -> str:
+    """Store the Gmail app password securely. Returns where it was stored."""
+    user = CONFIG.get("user_email")
+    if not user:
+        raise ValueError("Sign in first, so the app knows which Gmail account sends the email.")
+    pw = (pw or "").replace(" ", "").strip()
+    try:
+        import keyring
+
+        if pw:
+            keyring.set_password(_KEYRING_SERVICE, user, pw)
+        else:
+            try:
+                keyring.delete_password(_KEYRING_SERVICE, user)
+            except Exception:
+                pass
+        return "Windows Credential Manager"
+    except Exception:
+        data = _cfg.load_config()
+        data["gmail_app_password"] = pw
+        _cfg.save_config(data)
+        CONFIG["gmail_app_password"] = pw
+        return "the app's settings file"
+
+
 def emails_enabled() -> bool:
-    pw = (CONFIG.get("gmail_app_password") or "").replace(" ", "")
-    return bool(pw) and not pw.startswith("REPLACE") and bool(CONFIG.get("user_email"))
+    return bool(get_app_password()) and bool(CONFIG.get("user_email"))
+
+
+def send_test_email(to_addrs, log=lambda _m: None) -> bool:
+    body = ("This is a test from the Prismforce Report Downloader.\n\n"
+            "If you can read this, 'Email when done' is set up correctly: you'll get a summary "
+            "here whenever a download finishes.")
+    return _send_email(f"{EMAIL_PRODUCT}: test email from Report Downloader", body, to_addrs=to_addrs, log=log)
 
 LOGIN_TIMEOUT_MS = 5 * 60 * 1000  # 5 minutes to complete Google SSO manually
 REPORT_READY_TIMEOUT_S = 600
@@ -289,11 +342,11 @@ def _send_email(subject: str, body: str, to_addrs=None, log=_noop_log) -> bool:
     """Sends a plain-text email from your own Gmail account using the app password
     in config.json. Returns False (and logs why) instead of raising."""
     from_addr = CONFIG.get("user_email")
-    app_password = (CONFIG.get("gmail_app_password") or "").replace(" ", "")
+    app_password = get_app_password()
     to_addrs = to_addrs or [CONFIG.get("alert_to_email") or from_addr]
     to_addrs = [t for t in to_addrs if t]
-    if not (from_addr and to_addrs and app_password) or app_password.startswith("REPLACE"):
-        log("Email not sent: set gmail_app_password in config.json first.")
+    if not (from_addr and to_addrs and app_password):
+        log("Email not sent: set your Gmail app password in the app ('Email when done' > Set app password).")
         return False
     msg = MIMEText(body)
     msg["Subject"] = subject
@@ -306,6 +359,10 @@ def _send_email(subject: str, body: str, to_addrs=None, log=_noop_log) -> bool:
             server.sendmail(from_addr, to_addrs, msg.as_string())
         log(f"Email sent to {', '.join(to_addrs)}: {subject}")
         return True
+    except smtplib.SMTPAuthenticationError:
+        log(f"Could not send email '{subject}': Gmail rejected the app password for {from_addr}. "
+            "Create a new one and set it again in the app.")
+        return False
     except Exception as exc:
         log(f"Could not send email '{subject}': {exc}")
         return False
@@ -319,7 +376,7 @@ def send_attempt_email(client_name, admin_user, trigger, report_names, queued, t
                        note=None, log=_noop_log) -> bool:
     """Email #1 - sent once every report has been triggered (or the run died before that).
     queued: {report: datetime queued}; trigger_errors: {report: error text}."""
-    subject = f"SkillPrism: download attempted for {client_name} - {len(report_names)} report(s)"
+    subject = f"{EMAIL_PRODUCT}: download attempted for {client_name} - {len(report_names)} report(s)"
     lines = [f"Client: {client_name}", f"Admin user: {admin_user}", f"Run type: {trigger}",
              f"Attempted: {datetime.now():%d-%m-%Y %H:%M}", "", "Reports attempted:"]
     for r in report_names:
@@ -346,12 +403,12 @@ def send_run_summary_email(client_name, admin_user, trigger, details, log=_noop_
     ok = [d for d in details if d["status"] == "Success"]
     bad = [d for d in details if d["status"] != "Success"]
     if ok and not bad:
-        subject = f"SkillPrism: SUCCESS - all {len(ok)} report(s) downloaded for {client_name}"
+        subject = f"{EMAIL_PRODUCT}: SUCCESS - all {len(ok)} report(s) downloaded for {client_name}"
     elif ok:
-        subject = (f"SkillPrism: PARTIAL - {len(ok)} downloaded, {len(bad)} failed "
+        subject = (f"{EMAIL_PRODUCT}: PARTIAL - {len(ok)} downloaded, {len(bad)} failed "
                    f"for {client_name}")
     else:
-        subject = f"SkillPrism: FAILED - no reports downloaded for {client_name}"
+        subject = f"{EMAIL_PRODUCT}: FAILED - no reports downloaded for {client_name}"
     lines = [f"Client: {client_name}", f"Admin user: {admin_user}", f"Run type: {trigger}",
              f"Finished: {datetime.now():%d-%m-%Y %H:%M}", "",
              f"Reports attempted ({len(details)}):"]
@@ -1032,7 +1089,7 @@ def run_job(client_name: str, admin_user: str, report_names, log=print,
             log(f"Could not update the Excel log: {exc}")
 
     def attempt_email(note=None):
-        if send_email and not state["attempt_email_sent"]:
+        if send_email and SEND_ATTEMPT_EMAIL and not state["attempt_email_sent"]:
             state["attempt_email_sent"] = True
             send_attempt_email(client_name, admin_user, trigger, report_names, queued,
                                trigger_errors, note=note, log=log)

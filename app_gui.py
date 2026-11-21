@@ -96,6 +96,7 @@ class App:
             self.runner = automation.run_job
             self.known_reports = automation.KNOWN_REPORTS
         self.sel_key = "selected_reports" if product == "skillprism" else f"selected_reports_{product}"
+        automation.EMAIL_PRODUCT = "IntelliPrism" if product == "intelliprism" else "SkillPrism"
 
         root.title(f"Prismforce · {self.P['name']}")
         root.configure(bg=SURFACE)
@@ -346,8 +347,115 @@ class App:
         tk.Label(c4, text="The folder is created automatically if it doesn't exist.", bg=CARD, fg=MUTED,
                  font=self.F["small"]).grid(row=2, column=0, columnspan=3, sticky="w", pady=(2, 0))
 
+        self._email_card(parent)
         self._schedule_card(parent)
 
+
+    # ------------------------------------------------------------ email when done
+    def _email_card(self, parent) -> None:
+        self.engine.SEND_ATTEMPT_EMAIL = False  # the apps only send the "completed" email
+        c = self._card(parent, "Email when done (optional)")
+        c.columnconfigure(1, weight=1)
+        self.notify_on = tk.BooleanVar(value=bool(self.settings.get("notify_on", False)))
+        ttk.Checkbutton(c, text="Email a summary when the download finishes", variable=self.notify_on,
+                        style="PF.TCheckbutton", command=self._email_state).grid(row=0, column=0, columnspan=3,
+                                                                                 sticky="w")
+        tk.Label(c, text="To", bg=CARD, fg=TEXT, font=self.F["body"]).grid(row=1, column=0, sticky="w", pady=(6, 0))
+        self.notify_to = tk.Entry(c, font=self.F["body"], relief="solid", bd=1, fg=TEXT, highlightthickness=0)
+        default_to = self.settings.get("notify_to") or self.engine.CONFIG.get("user_email") or ""
+        self.notify_to.insert(0, default_to)
+        self.notify_to.grid(row=1, column=1, columnspan=2, sticky="we", padx=(12, 0), pady=(6, 0), ipady=3)
+        tk.Label(c, text="One or more addresses, separated by commas.", bg=CARD, fg=MUTED,
+                 font=self.F["small"]).grid(row=2, column=1, columnspan=2, sticky="w", padx=(12, 0))
+        row = tk.Frame(c, bg=CARD)
+        row.grid(row=3, column=0, columnspan=3, sticky="we", pady=(8, 0))
+        self.pw_lbl = tk.Label(row, text="", bg=CARD, font=self.F["small"], anchor="w", justify="left")
+        self.pw_lbl.pack(side="left")
+        self._button(row, "Send test email", self._test_email, kind="chip").pack(side="right")
+        self._button(row, "Set app password…", self._set_app_password, kind="chip").pack(side="right", padx=8)
+        self._email_state()
+
+    def _email_state(self) -> None:
+        who = self.engine.CONFIG.get("user_email")
+        if not who:
+            txt, col = "Sent from your Gmail. Sign in first (Step 1).", MUTED
+        elif self.engine.get_app_password():
+            txt, col = f"Sent from {who}  ·  Gmail app password saved ✓", OK
+        else:
+            txt, col = f"Sent from {who}  ·  needs a Gmail app password (one-time setup)", WARN
+        self.pw_lbl.config(text=txt, fg=col)
+        self.notify_to.config(state="normal" if self.notify_on.get() else "disabled", disabledbackground=TINT)
+
+    def _recipients(self) -> list[str]:
+        import re as _re
+
+        return [a.strip() for a in _re.split(r"[,;\s]+", self.notify_to.get()) if a.strip()]
+
+    def _valid_recipients(self) -> list[str] | None:
+        import re as _re
+
+        to = self._recipients()
+        bad = [a for a in to if not _re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", a)]
+        if not to or bad:
+            messagebox.showwarning("Email when done", "Enter valid email address(es) in 'To'"
+                                   + (f" (not valid: {', '.join(bad)})." if bad else "."))
+            return None
+        return to
+
+    def _set_app_password(self) -> None:
+        if not self.engine.CONFIG.get("user_email"):
+            messagebox.showinfo("App password", "Sign in first (Step 1), so the app knows which Gmail sends the email.")
+            return
+        if messagebox.askyesno(
+                "Gmail app password",
+                "Emails are sent from your own Gmail using a Google 'app password' (16 letters).\n\n"
+                "1. On the Google page that opens, create an app password (name it e.g. 'Report Downloader').\n"
+                "2. Copy it and paste it in the next box.\n\n"
+                "It's stored in Windows Credential Manager on this PC only.\n\nOpen the Google page now?"):
+            import webbrowser
+
+            webbrowser.open("https://myaccount.google.com/apppasswords")
+        from tkinter import simpledialog
+
+        pw = simpledialog.askstring("Gmail app password", "Paste the 16-letter app password:", show="•",
+                                    parent=self.root)
+        if pw is None:
+            return
+        try:
+            where = self.engine.set_app_password(pw)
+        except ValueError as exc:
+            messagebox.showwarning("App password", str(exc))
+            return
+        self._email_state()
+        if pw.strip():
+            messagebox.showinfo("App password", f"Saved in {where}. Click 'Send test email' to check it works.")
+
+    def _test_email(self) -> None:
+        to = self._valid_recipients()
+        if not to:
+            return
+        if not self.engine.emails_enabled():
+            self._set_app_password()
+            if not self.engine.emails_enabled():
+                return
+        msgs = []
+        ok = self.engine.send_test_email(to, log=msgs.append)
+        (messagebox.showinfo if ok else messagebox.showerror)(
+            "Test email", ("Sent! Check the inbox of " + ", ".join(to)) if ok else (msgs[-1] if msgs else "Not sent."))
+
+    def _email_choice(self) -> tuple[bool, list[str]]:
+        """(send?, recipients) for a run, after validating. Returns (False, []) when off."""
+        if not self.notify_on.get():
+            return False, []
+        to = self._valid_recipients()
+        if to is None:
+            raise ValueError("bad recipients")
+        if not self.engine.emails_enabled():
+            if not messagebox.askyesno("Email when done", "No Gmail app password is set, so no email can be sent.\n\n"
+                                       "Continue without email? (Choose No to set it up first.)"):
+                raise ValueError("setup first")
+            return False, []
+        return True, to
 
     # ------------------------------------------------------------ schedules
     def _schedule_card(self, parent) -> None:
@@ -420,8 +528,9 @@ class App:
                 tag = {"SUCCESS": "ok", "PARTIAL": "warn"}.get(lr["overall"], "bad")
             else:
                 last, tag = "Not run yet", "idle"
+            client = s["client"] + ("  ✉" if s.get("notify") else "")
             self.s_tree.insert("", "end", iid=s["id"], text=self.sched.describe(s),
-                               values=(s["client"], len(s["reports"]), last), tags=(tag,))
+                               values=(client, len(s["reports"]), last), tags=(tag,))
 
     def _schedule_tick(self) -> None:
         """Every minute, show results of background runs without reopening the app."""
@@ -445,9 +554,18 @@ class App:
             return
         days = [d for d, v in self.s_days.items() if v.get()]
         role = self.role.get().strip() if self.role is not None else None
+        notify = []
+        if self.notify_on.get():
+            notify = self._valid_recipients()
+            if notify is None:
+                return
+            if not self.engine.emails_enabled() and not messagebox.askyesno(
+                    "Email when done", "No Gmail app password is set, so this schedule can't email yet.\n\n"
+                    "Add the schedule anyway? (You can set the password later.)"):
+                return
         try:
             s = self.sched.add_schedule(self.product, client, admin, reports, folder,
-                                        f"{hh:02d}:{mm:02d}", days, role=role)
+                                        f"{hh:02d}:{mm:02d}", days, role=role, notify=notify)
         except self.sched.ScheduleError as exc:
             messagebox.showerror("Schedule", str(exc))
             return
@@ -455,7 +573,9 @@ class App:
         self._refresh_schedules()
         messagebox.showinfo("Schedule added",
                             f"{self.sched.describe(s)}: {len(reports)} report(s) for {client} will download "
-                            f"automatically to {folder}.\n\nKeep the PC on and stay logged in to Windows at "
+                            f"automatically to {folder}."
+                            + (f"\nA summary will be emailed to {', '.join(notify)}." if notify else "")
+                            + "\n\nKeep the PC on and stay logged in to Windows at "
                             "that time. If your sign-in expires, the run will tell you to sign in again here.")
 
     def _remove_schedule(self) -> None:
@@ -641,6 +761,8 @@ class App:
         s["show_browser"] = bool(self.show_browser.get())
         if self.role is not None:
             s["rms_role"] = self.role.get().strip() or "RMG Lead"
+        s["notify_on"] = bool(self.notify_on.get())
+        s["notify_to"] = self.notify_to.get().strip()
         try:
             cfgmod.save_config(s)
         except Exception:
@@ -686,6 +808,13 @@ class App:
         if not folder:
             messagebox.showwarning("Save to", "Choose a folder to save the reports in.")
             return
+        try:
+            send_email, recips = self._email_choice()
+        except ValueError:
+            return
+        if send_email:
+            self.engine.CONFIG["notify_emails"] = recips
+            self.engine.CONFIG["alert_to_email"] = recips[0]
         self._save_settings(client, admin, reports)
         self.engine.set_download_root(folder)
         try:
@@ -710,7 +839,6 @@ class App:
         self._lock_ui("run")
         self.stop_event = threading.Event()
         headless = not self.show_browser.get()
-        send_email = self.engine.emails_enabled()
         extra = {"role": self.role.get().strip() or "RMG Lead"} if self.role is not None else {}
 
         def work():
@@ -858,8 +986,20 @@ class App:
                 sched = "ok" if made and gone else f"FAILED made={made} gone={gone}"
             except Exception as exc:
                 sched = f"FAILED {exc}"
+        kr = "skipped (not Windows)"
+        if self.sched.supported():
+            try:  # the Gmail app password must land in Windows Credential Manager
+                import keyring
+
+                keyring.set_password("PF Report Downloader selftest", "x", "secret-123")
+                got = keyring.get_password("PF Report Downloader selftest", "x")
+                keyring.delete_password("PF Report Downloader selftest", "x")
+                backend = type(keyring.get_keyring()).__name__
+                kr = "ok" if got == "secret-123" and "Windows" in backend else f"FAILED backend={backend} got={bool(got)}"
+            except Exception as exc:
+                kr = f"FAILED {exc}"
         report.write_text(f"ui=ok\nproduct={self.product}\nreports={len(self.report_vars)}\ndriver={drv_path}\n"
-                          f"driver_exists={drv_path.exists()}\nschedule={sched}\n", encoding="utf-8")
+                          f"driver_exists={drv_path.exists()}\nschedule={sched}\nkeyring={kr}\n", encoding="utf-8")
         self.root.destroy()
 
 
