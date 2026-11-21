@@ -54,18 +54,75 @@ def _menu(page, label: str):
     return page.locator("a.menu-list-item").filter(has_text=_exact(label)).first
 
 
+DEFAULT_ROLE = "RMG Lead"
+ROLE = DEFAULT_ROLE   # set per run from the app's "Role" box
+
+
+def _role_name(label: str) -> str:
+    return re.sub(r"\(\s*my role\s*\)", "", label or "", flags=re.I).strip()
+
+
+def _handle_role_screen(page, log) -> bool:
+    """After Silent Login IntelliPrism may ask which role to continue as
+    (an ng-select 'userRole' + an arrow button). Pick ROLE if offered."""
+    sel = page.locator("ng-select[name='userRole']").first
+    try:
+        if sel.count() == 0 or not sel.is_visible():
+            return False
+    except Exception:
+        return False
+    current = _role_name(sel.locator(".ng-value-label").first.inner_text(timeout=3000))
+    chosen = current
+    try:
+        sel.locator(".ng-select-container").first.click(timeout=5000)
+        opts = page.locator("ng-dropdown-panel .ng-option")
+        opts.first.wait_for(timeout=8000)
+        labels = [_role_name(t) for t in opts.all_inner_texts()]
+        log(f"Role screen - roles offered: {', '.join(labels)}")
+        want = (ROLE or "").strip().lower()
+        idx = next((i for i, l in enumerate(labels) if l.lower() == want), None)
+        if idx is None:
+            idx = next((i for i, l in enumerate(labels) if want and want in l.lower()), None)
+        if idx is not None:
+            opts.nth(idx).click(timeout=5000)
+            chosen = labels[idx]
+        else:
+            log(f"Role '{ROLE}' isn't offered - continuing as '{current}'.")
+            page.keyboard.press("Escape")
+    except PWTimeoutError:
+        log("Couldn't open the role list - continuing with the role already selected.")
+    page.wait_for_timeout(500)
+    nxt = page.locator(".next-btn").first
+    try:
+        nxt.click(timeout=8000)
+    except Exception:
+        nxt.evaluate("el => el.click()")
+    log(f"Continuing as role '{chosen}'.")
+    core.wait_networkidle(page, log, timeout=30000)
+    return True
+
+
 def _ensure_in_app(page, origin: str, log):
     if "/rms/" not in page.url or "file-download" in page.url:
         page.goto(f"{origin}/rms/home", timeout=60000)
         core.wait_networkidle(page, log, timeout=30000)
     if core.looks_like_login_page(page):
         raise core.SessionExpired("Redirected to login while opening IntelliPrism.")
-    try:
-        _menu(page, "Intelliprism Reports").wait_for(timeout=40000)
-    except PWTimeoutError:
-        core.debug_dump(page, "rms_menu_not_found", log)
-        raise core.ReportNotFound("IntelliPrism's left menu (Intelliprism Reports / Downloads) didn't appear. "
-                                  "Does this admin user have IntelliPrism access?")
+    menu = _menu(page, "Intelliprism Reports")
+    end = time.time() + 60
+    while time.time() < end:
+        try:
+            if menu.count() and menu.is_visible():
+                return
+        except Exception:
+            pass
+        if _handle_role_screen(page, log):
+            continue
+        page.wait_for_timeout(1000)
+    core.debug_dump(page, "rms_menu_not_found", log)
+    raise core.ReportNotFound(
+        f"IntelliPrism's left menu has no 'Intelliprism Reports' (role used: '{ROLE}'). "
+        "Check the Role box - this role may not have reports access.")
 
 
 def _click_menu(page, label: str, log):
@@ -341,9 +398,12 @@ def _download_row(page, row, client_name: str, report_name: str, log) -> Path:
 
 # ------------------------------------------------------------------ orchestration
 def run_job(client_name: str, admin_user: str, report_names, log=print, headless=True,
-            stop_event=None, notify_on_expiry=None, trigger="Manual", send_email=True):
+            stop_event=None, notify_on_expiry=None, trigger="Manual", send_email=True, role=None):
     """Generate + download each report in turn. Same contract as automation.run_job."""
     import report_log
+
+    global ROLE
+    ROLE = (role or DEFAULT_ROLE).strip()
 
     report_names = list(report_names)
     if not core.has_valid_session():

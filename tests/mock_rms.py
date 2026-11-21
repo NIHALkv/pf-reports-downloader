@@ -68,9 +68,25 @@ sessionStorage.removeItem('nav');
 </script>"""
 
 
+ROLE_SCREEN = """<app-home><form>
+<ng-select name="userRole" class="role-select"><div class="ng-select-container" onclick="document.getElementById('panel').style.display='block'">
+  <span class="ng-value-label">Admin <span class="own-role-text"> (My Role)</span></span></div></ng-select>
+<ng-dropdown-panel id="panel" style="display:none">
+  <div class="ng-option" onclick="pickRole('Admin')">Admin (My Role)</div>
+  <div class="ng-option" onclick="pickRole('RMG Lead')">RMG Lead</div>
+  <div class="ng-option" onclick="pickRole('Hiring Manager')">Hiring Manager</div></ng-dropdown-panel>
+<div class="btn btn-primary next-btn" onclick="sessionStorage.setItem('role', window.__role || 'Admin'); location.replace('/rms/home')"><mat-icon>keyboard_arrow_right</mat-icon></div>
+</form></app-home>
+<script>window.__role='Admin';function pickRole(r){window.__role=r;document.querySelector('.ng-value-label').textContent=r;document.getElementById('panel').style.display='none';}</script>"""
+
+
 @app.get("/rms/home")
 def home():
-    return MENU + "<h2>Home</h2>"
+    # First visit after Silent Login: choose a role. Only 'RMG Lead' gets the reports menu here.
+    return ("<div id='role'>" + ROLE_SCREEN + "</div><div id='app' style='display:none'>" + MENU + "<h2>Home</h2></div>"
+            "<script>if(sessionStorage.getItem('role')){document.getElementById('role').remove();"
+            "document.getElementById('app').style.display='block';"
+            "if(sessionStorage.getItem('role')!=='RMG Lead'){document.querySelectorAll('a.menu-list-item')[1].remove();}}</script>")
 
 
 @app.get("/rms/download-center")

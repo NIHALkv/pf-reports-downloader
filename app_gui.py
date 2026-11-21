@@ -278,8 +278,18 @@ class App:
         tk.Label(c2, text="Admin User", bg=CARD, fg=TEXT, font=self.F["body"]).grid(row=1, column=0, sticky="w", pady=4)
         self.admin = ttk.Combobox(c2, values=sorted({r["admin_user"] for r in recent}), font=self.F["body"])
         self.admin.grid(row=1, column=1, sticky="we", padx=(12, 0), pady=4)
-        tk.Label(c2, text='Exactly as in Global Admin. The admin user must have "Silent Login" access for this client.',
-                 bg=CARD, fg=MUTED, font=self.F["small"]).grid(row=2, column=0, columnspan=2, sticky="w", pady=(2, 0))
+        hint_row = 2
+        self.role = None
+        if self.product == "intelliprism":
+            tk.Label(c2, text="Role", bg=CARD, fg=TEXT, font=self.F["body"]).grid(row=2, column=0, sticky="w", pady=4)
+            self.role = ttk.Combobox(c2, values=["RMG Lead", "Admin", "Hiring Manager"], font=self.F["body"])
+            self.role.set(self.settings.get("rms_role") or "RMG Lead")
+            self.role.grid(row=2, column=1, sticky="we", padx=(12, 0), pady=4)
+            hint_row = 3
+        tk.Label(c2, text='Exactly as in Global Admin. The admin user must have "Silent Login" access for this client.'
+                 + (" Role: the one picked on IntelliPrism's role screen." if self.product == "intelliprism" else ""),
+                 bg=CARD, fg=MUTED, font=self.F["small"], wraplength=560, justify="left").grid(
+                 row=hint_row, column=0, columnspan=2, sticky="w", pady=(2, 0))
         if recent:
             self.client.set(recent[0]["client_name"])
             self.admin.set(recent[0]["admin_user"])
@@ -505,6 +515,8 @@ class App:
         s[self.sel_key] = reports
         s["download_root"] = self.folder.get().strip()
         s["show_browser"] = bool(self.show_browser.get())
+        if self.role is not None:
+            s["rms_role"] = self.role.get().strip() or "RMG Lead"
         try:
             cfgmod.save_config(s)
         except Exception:
@@ -567,11 +579,12 @@ class App:
         self.stop_event = threading.Event()
         headless = not self.show_browser.get()
         send_email = self.engine.emails_enabled()
+        extra = {"role": self.role.get().strip() or "RMG Lead"} if self.role is not None else {}
 
         def work():
             try:
                 res = self.runner(client, admin, reports, log=self._log, headless=headless,
-                                          stop_event=self.stop_event, trigger="Manual", send_email=send_email)
+                                  stop_event=self.stop_event, trigger="Manual", send_email=send_email, **extra)
                 self.q.put(("run_done", ("ok", res)))
             except self.engine.RunStopped:
                 self.q.put(("run_done", ("stopped", None)))
