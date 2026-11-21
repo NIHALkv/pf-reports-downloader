@@ -427,6 +427,7 @@ def run_job(client_name: str, admin_user: str, report_names, log=print, headless
         except Exception as exc:
             log(f"Could not update the Excel log: {exc}")
 
+    core.ensure_download_root(log)
     job_started = datetime.now()
     try:
         with sync_playwright() as p:

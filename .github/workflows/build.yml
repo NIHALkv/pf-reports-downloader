@@ -49,8 +49,15 @@ jobs:
             Get-Content $f
             if (-not (Select-String -Path $f -Pattern "driver_exists=True" -Quiet)) { throw "$($t.exe): browser driver missing" }
             if (-not (Select-String -Path $f -Pattern "reports=$($t.reports)" -Quiet)) { throw "$($t.exe): report list incomplete" }
+            if (-not (Select-String -Path $f -Pattern "schedule=ok" -Quiet)) { throw "$($t.exe): Windows Task Scheduler test failed" }
+            # background (scheduled) mode starts and exits cleanly for an unknown schedule id
+            $env:PF_SELFTEST = ""
+            $q = Start-Process "dist\$($t.exe).exe" -ArgumentList "--scheduled","nosuchid" -PassThru -Wait
+            if ($q.ExitCode -ne 1) { throw "$($t.exe): --scheduled mode returned $($q.ExitCode), expected 1" }
+            $env:PF_SELFTEST = "1"
           }
-          Write-Host "Both self-tests passed."
+          Get-Content "$data\run_logs\scheduled_*.log" -ErrorAction SilentlyContinue
+          Write-Host "Both self-tests passed (UI, engine, browser driver, Windows Task Scheduler, scheduled mode)."
 
       - name: Move the release tag to this commit
         run: |

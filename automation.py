@@ -57,6 +57,25 @@ def set_download_root(path) -> None:
     REPORT_LOG_PATH = DOWNLOAD_ROOT / "Download_Log.xlsx"
 
 
+class FolderError(Exception):
+    """The save folder doesn't exist and can't be created."""
+
+
+def ensure_download_root(log=lambda _m: None) -> Path:
+    """Create the save folder (and any parent folders) if it isn't there yet."""
+    root = Path(DOWNLOAD_ROOT)
+    if root.is_dir():
+        return root
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise FolderError(
+            f"Couldn't create the save folder '{root}' ({exc.strerror or exc}). "
+            "Pick another folder in 'Save to', e.g. one inside Documents.") from exc
+    log(f"Created the save folder: {root}")
+    return root
+
+
 def set_post_trigger_wait(seconds: int) -> None:
     global POST_TRIGGER_WAIT_S, POST_GENERATE_DELAY_S
     POST_TRIGGER_WAIT_S = POST_GENERATE_DELAY_S = int(seconds)
@@ -1018,6 +1037,7 @@ def run_job(client_name: str, admin_user: str, report_names, log=print,
             send_attempt_email(client_name, admin_user, trigger, report_names, queued,
                                trigger_errors, note=note, log=log)
 
+    ensure_download_root(log)
     job_started = datetime.now()
     try:
         with sync_playwright() as p:

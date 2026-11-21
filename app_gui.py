@@ -343,7 +343,131 @@ class App:
         self.show_browser = tk.BooleanVar(value=bool(self.settings.get("show_browser", True)))
         ttk.Checkbutton(c4, text="Show the browser while it works", variable=self.show_browser,
                         style="PF.TCheckbutton").grid(row=1, column=0, columnspan=3, sticky="w", pady=(8, 0))
+        tk.Label(c4, text="The folder is created automatically if it doesn't exist.", bg=CARD, fg=MUTED,
+                 font=self.F["small"]).grid(row=2, column=0, columnspan=3, sticky="w", pady=(2, 0))
 
+        self._schedule_card(parent)
+
+
+    # ------------------------------------------------------------ schedules
+    def _schedule_card(self, parent) -> None:
+        import scheduling
+
+        self.sched = scheduling
+        c = self._card(parent, "Schedule automatic downloads")
+        row = tk.Frame(c, bg=CARD)
+        row.pack(fill="x")
+        tk.Label(row, text="Time", bg=CARD, fg=TEXT, font=self.F["body"]).pack(side="left")
+        self.s_hour = ttk.Spinbox(row, from_=0, to=23, width=3, format="%02.0f", wrap=True, font=self.F["body"])
+        self.s_hour.set("08")
+        self.s_hour.pack(side="left", padx=(8, 2))
+        tk.Label(row, text=":", bg=CARD, fg=TEXT, font=self.F["body"]).pack(side="left")
+        self.s_min = ttk.Spinbox(row, from_=0, to=55, increment=5, width=3, format="%02.0f", wrap=True,
+                                 font=self.F["body"])
+        self.s_min.set("30")
+        self.s_min.pack(side="left", padx=(2, 16))
+        self.s_days = {}
+        for d in scheduling.DAYS:
+            v = tk.BooleanVar(value=d not in ("SAT", "SUN"))
+            self.s_days[d] = v
+            ttk.Checkbutton(row, text=d.title(), variable=v, style="PF.TCheckbutton").pack(side="left", padx=(0, 4))
+
+        row2 = tk.Frame(c, bg=CARD)
+        row2.pack(fill="x", pady=(8, 6))
+        self.s_add = self._button(row2, "Add schedule", self._add_schedule, kind="secondary")
+        self.s_add.pack(side="left")
+        self.s_remove = self._button(row2, "Remove selected", self._remove_schedule, kind="danger")
+        self.s_remove.pack(side="left", padx=8)
+        tk.Label(row2, text="Uses the client, admin user, reports and folder chosen above.", bg=CARD, fg=MUTED,
+                 font=self.F["small"]).pack(side="left", padx=6)
+
+        self.s_tree = ttk.Treeview(c, columns=("client", "reports", "last"), show="tree headings",
+                                   style="PF.Treeview", height=3)
+        self.s_tree.heading("#0", text="WHEN", anchor="w")
+        self.s_tree.heading("client", text="CLIENT", anchor="w")
+        self.s_tree.heading("reports", text="REPORTS", anchor="w")
+        self.s_tree.heading("last", text="LAST RUN", anchor="w")
+        self.s_tree.column("#0", width=170)
+        self.s_tree.column("client", width=130)
+        self.s_tree.column("reports", width=70)
+        self.s_tree.column("last", width=190)
+        for tag, col in (("ok", OK), ("bad", BAD), ("warn", WARN), ("idle", MUTED)):
+            self.s_tree.tag_configure(tag, foreground=col)
+        self.s_tree.pack(fill="x")
+        note = ("Runs in the background even when this app is closed, as long as the PC is on and you're "
+                "logged in to Windows. Each run's log is in Open logs > run_logs.")
+        if not scheduling.supported():
+            note = "Scheduling uses Windows Task Scheduler and is only available on Windows."
+            self._set_enabled(self.s_add, False)
+        tk.Label(c, text=note, bg=CARD, fg=MUTED, font=self.F["small"], wraplength=600, justify="left",
+                 anchor="w").pack(fill="x", pady=(4, 0))
+        self._refresh_schedules()
+        self.root.after(60000, self._schedule_tick)
+
+    def _refresh_schedules(self) -> None:
+        try:
+            items = self.sched.list_schedules(self.product)
+        except Exception:
+            items = []
+        self.s_tree.delete(*self.s_tree.get_children())
+        for s in items:
+            lr = s.get("last_run")
+            if lr:
+                last = f"{lr['when']}  {lr['overall'].title()}" + (f" ({lr['ok']}/{lr['ok'] + lr['failed']})"
+                                                                   if lr.get("ok") is not None else "")
+                if lr.get("error"):
+                    last += f" - {lr['error'][:40]}"
+                tag = {"SUCCESS": "ok", "PARTIAL": "warn"}.get(lr["overall"], "bad")
+            else:
+                last, tag = "Not run yet", "idle"
+            self.s_tree.insert("", "end", iid=s["id"], text=self.sched.describe(s),
+                               values=(s["client"], len(s["reports"]), last), tags=(tag,))
+
+    def _schedule_tick(self) -> None:
+        """Every minute, show results of background runs without reopening the app."""
+        if not self.s_tree.selection():
+            self._refresh_schedules()
+        self.root.after(60000, self._schedule_tick)
+
+    def _add_schedule(self) -> None:
+        client, admin = self.client.get().strip(), self.admin.get().strip()
+        reports = [n for n, v in self.report_vars.items() if v.get()]
+        folder = self.folder.get().strip()
+        if not client or not admin or not reports or not folder:
+            messagebox.showwarning("Schedule", "Fill in Client Name, Admin User, at least one report and "
+                                               "'Save to' first. The schedule uses these.")
+            return
+        try:
+            hh, mm = int(self.s_hour.get()), int(self.s_min.get())
+            assert 0 <= hh <= 23 and 0 <= mm <= 59
+        except Exception:
+            messagebox.showwarning("Schedule", "Enter a valid time, e.g. 08 : 30.")
+            return
+        days = [d for d, v in self.s_days.items() if v.get()]
+        role = self.role.get().strip() if self.role is not None else None
+        try:
+            s = self.sched.add_schedule(self.product, client, admin, reports, folder,
+                                        f"{hh:02d}:{mm:02d}", days, role=role)
+        except self.sched.ScheduleError as exc:
+            messagebox.showerror("Schedule", str(exc))
+            return
+        self._save_settings(client, admin, reports)
+        self._refresh_schedules()
+        messagebox.showinfo("Schedule added",
+                            f"{self.sched.describe(s)}: {len(reports)} report(s) for {client} will download "
+                            f"automatically to {folder}.\n\nKeep the PC on and stay logged in to Windows at "
+                            "that time. If your sign-in expires, the run will tell you to sign in again here.")
+
+    def _remove_schedule(self) -> None:
+        sel = self.s_tree.selection()
+        if not sel:
+            messagebox.showinfo("Schedule", "Click a schedule in the list first, then Remove selected.")
+            return
+        if not messagebox.askyesno("Remove schedule", "Remove the selected schedule?"):
+            return
+        for sid in sel:
+            self.sched.remove_schedule(sid)
+        self._refresh_schedules()
 
     # ------------------------------------------------------------ right column: progress
     def _right(self, parent) -> None:
@@ -564,6 +688,14 @@ class App:
             return
         self._save_settings(client, admin, reports)
         self.engine.set_download_root(folder)
+        try:
+            created = not Path(folder).is_dir()
+            self.engine.ensure_download_root()
+            if created:
+                self._append_log(f"Created the save folder: {folder}")
+        except self.engine.FolderError as exc:
+            messagebox.showerror("Save to", str(exc))
+            return
         if os.environ.get("PF_POST_TRIGGER_WAIT_S"):
             self.engine.set_post_trigger_wait(int(os.environ["PF_POST_TRIGGER_WAIT_S"]))
 
@@ -715,8 +847,19 @@ class App:
         drv = compute_driver_executable()
         drv_path = Path(drv[0] if isinstance(drv, tuple) else drv)
         report = cfgmod.DATA_DIR / f"selftest_{self.product}.txt"
+        sched = "skipped (not Windows)"
+        if self.sched.supported():
+            try:  # create a real Windows task far in the future, check it, then remove it
+                t = self.sched.add_schedule(self.product, "SelfTest", "selftest@example.com", ["x"],
+                                            str(cfgmod.DATA_DIR / "selftest_out"), "03:17", ["SUN"])
+                made = self.sched.task_exists(t)
+                self.sched.remove_schedule(t["id"])
+                gone = not self.sched.task_exists(t)
+                sched = "ok" if made and gone else f"FAILED made={made} gone={gone}"
+            except Exception as exc:
+                sched = f"FAILED {exc}"
         report.write_text(f"ui=ok\nproduct={self.product}\nreports={len(self.report_vars)}\ndriver={drv_path}\n"
-                          f"driver_exists={drv_path.exists()}\n", encoding="utf-8")
+                          f"driver_exists={drv_path.exists()}\nschedule={sched}\n", encoding="utf-8")
         self.root.destroy()
 
 

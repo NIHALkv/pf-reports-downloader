@@ -23,6 +23,22 @@ Windows, nothing to install.
 5. Click **Download reports** and watch the live progress. **Stop** cancels between steps.
 
 Files go to `C:\Reports download\<Client>\<DD-MM-YYYY>\<Report>_<HHMMSS>.xlsx`. Change this with **Save to**. Every attempt is logged in `Download_Log.xlsx` in that folder.
+The folder, including any missing parent folders, is **created automatically** if it doesn't exist.
+
+## Schedule automatic downloads
+![Schedule](docs/schedule-screenshot.png)
+
+1. Fill in Steps 2–3 and **Save to**, as for a normal run.
+2. In **Schedule automatic downloads**, pick a **time** and **days** (default: weekdays 08:30).
+3. Click **Add schedule**.
+
+That's it. Each schedule:
+- runs through **Windows Task Scheduler**, so it works **even when the app is closed**, as long as the PC is on and you're logged in to Windows
+- runs in the background with no window, reusing your saved sign-in
+- shows its **last result** in the app (Success, Partly done or Failed, plus the reason)
+- writes a log to `run_logs\scheduled_<date>.log` (via **Open logs**)
+
+You can add several schedules (e.g. one per client), and remove any with **Remove selected**. If your sign-in has expired when a schedule runs, its result says so. Open the app and click **Sign in again**.
 
 ## How each app works
 
@@ -58,6 +74,7 @@ Global Admin → client → **Silent Login** → Intelliprism Reports, then **on
 | `app_skillprism.py`, `app_intelliprism.py` | Entry points for the two `.exe`s |
 | `automation.py` | Sign-in, Silent Login and the SkillPrism engine |
 | `rms_automation.py` | IntelliPrism engine: dates, generate, wait, download |
+| `scheduling.py` | Scheduled downloads: Windows Task Scheduler + background run mode (`--scheduled <id>`) |
 | `config.py`, `report_log.py` | Settings and the Excel run log |
 | `tests/mock_rms.py` | A mock of the IntelliPrism pages for testing without the real site |
 | `branding/` | Official Prismforce logo and icon |
@@ -70,4 +87,4 @@ python app_skillprism.py      # or: python app_intelliprism.py
 ```
 
 ### Releasing a new version
-Push to `main`. GitHub builds both apps on Windows, launches each once as a self-test, and only then publishes them to **[Releases → latest](../../releases/latest)**. The download links above always serve the newest build.
+Push to `main`. GitHub builds both apps on Windows, self-tests each (window, engine, browser driver, a real Task Scheduler task, background mode), and only then publishes them to **[Releases → latest](../../releases/latest)**. The download links above always serve the newest build.
