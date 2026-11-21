@@ -995,7 +995,7 @@ class App:
                 got = keyring.get_password("PF Report Downloader selftest", "x")
                 keyring.delete_password("PF Report Downloader selftest", "x")
                 backend = type(keyring.get_keyring()).__name__
-                kr = "ok" if got == "secret-123" and "Windows" in backend else f"FAILED backend={backend} got={bool(got)}"
+                kr = "ok" if got == "secret-123" and ("WinVault" in backend or "Windows" in backend) else f"FAILED backend={backend} got={bool(got)}"
             except Exception as exc:
                 kr = f"FAILED {exc}"
         report.write_text(f"ui=ok\nproduct={self.product}\nreports={len(self.report_vars)}\ndriver={drv_path}\n"
